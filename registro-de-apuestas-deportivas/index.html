@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BetTracker MVP — Herramienta Personal de Apuestas</title>
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#09090b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <script>
+      (function() {
+        function patchFetchProperty(target) {
+          if (!target) return;
+          try {
+            var currentFetch = target.fetch;
+            var desc = Object.getOwnPropertyDescriptor(target, 'fetch');
+            if (!desc && Object.getPrototypeOf(target)) {
+              desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(target), 'fetch');
+            }
+            if (desc && !desc.set && desc.configurable) {
+              Object.defineProperty(target, 'fetch', {
+                configurable: true,
+                enumerable: true,
+                get: function() { return currentFetch; },
+                set: function(val) {
+                  currentFetch = val;
+                }
+              });
+            }
+          } catch (e) {}
+        }
+        try {
+          patchFetchProperty(window);
+          if (typeof globalThis !== 'undefined') patchFetchProperty(globalThis);
+          if (typeof Window !== 'undefined' && Window.prototype) patchFetchProperty(Window.prototype);
+        } catch (e) {}
+
+        window.addEventListener('error', function(e) {
+          if (e && e.message && (
+            e.message.indexOf('Cannot set property fetch') !== -1 ||
+            e.message.indexOf('only a getter') !== -1 ||
+            e.message.indexOf('ResizeObserver loop') !== -1
+          )) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            return true;
+          }
+        }, true);
+      })();
+    </script>
+  </head>
+  <body class="bg-[#09090b] text-zinc-100 font-sans antialiased">
+    <div id="root" class="min-h-screen flex flex-col"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+

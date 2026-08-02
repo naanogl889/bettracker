@@ -1,0 +1,18 @@
+{
+  "short_name": "BetTracker",
+  "name": "BetTracker — Herramienta Personal de Apuestas",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "description": "Registro y análisis personal de apuestas deportivas sincronizado en Supabase PostgreSQL sin login"
+}
