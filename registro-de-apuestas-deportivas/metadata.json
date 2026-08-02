@@ -1,6 +1,0 @@
-{
-  "name": "Registro de Apuestas Deportivas",
-  "description": "Aplicación web moderna y rápida para registrar apuestas deportivas, gestionar apuestas pendientes y analizar rentabilidad, ROI y estadísticas.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
