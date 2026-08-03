@@ -178,8 +178,26 @@ export const EditBetModal: React.FC<EditBetModalProps> = ({
               required
               value={bookmaker}
               onChange={(e) => setBookmaker(e.target.value)}
+              placeholder="Ej: Bet365, Betfair..."
               className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-700 text-white text-sm"
             />
+            {/* Presets de casas */}
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {COMMON_BOOKMAKERS.map((bm) => (
+                <button
+                  key={bm}
+                  type="button"
+                  onClick={() => setBookmaker(bm)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
+                    bookmaker === bm
+                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                      : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {bm}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

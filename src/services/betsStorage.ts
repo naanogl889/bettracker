@@ -27,8 +27,12 @@ CREATE TABLE IF NOT EXISTS public.bets (
   event_date DATE,
   status TEXT NOT NULL DEFAULT 'pending',
   profit NUMERIC NOT NULL DEFAULT 0,
-  notes TEXT
+  notes TEXT,
+  category TEXT DEFAULT 'value'
 );
+
+-- Si ya creaste tu tabla en Supabase antes, añade la columna con este comando en el SQL Editor:
+-- ALTER TABLE public.bets ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'value';
 
 -- Crear índice para mejorar consultas por fecha y estado
 CREATE INDEX IF NOT EXISTS idx_bets_created_at ON public.bets(created_at DESC);
@@ -156,7 +160,14 @@ export async function fetchBetsFromSupabase(
     }
 
     const data: Bet[] = await response.json();
-    return Array.isArray(data) ? data : null;
+    if (!Array.isArray(data)) return null;
+    return data.map((b) => ({
+      ...b,
+      category:
+        b.category === 'matched' || b.notes?.includes('[MATCHED]')
+          ? 'matched'
+          : 'value',
+    }));
   } catch (err) {
     console.warn('Error al conectar con Supabase en fetch:', err);
     return null;
@@ -177,12 +188,17 @@ export async function upsertBetInSupabase(
     const cleanUrl = config.url.replace(/\/$/, '');
     const endpoint = `${cleanUrl}/rest/v1/bets`;
 
+    // Si es matched betting, aseguramos marca en notes por compatibilidad si no existe la columna en Supabase
     const payload = {
       ...bet,
+      notes:
+        bet.category === 'matched' && !bet.notes?.includes('[MATCHED]')
+          ? `[MATCHED] ${bet.notes || ''}`.trim()
+          : bet.notes,
       updated_at: new Date().toISOString(),
     };
 
-    const response = await fetch(endpoint, {
+    let response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -192,6 +208,21 @@ export async function upsertBetInSupabase(
       },
       body: JSON.stringify(payload),
     });
+
+    // Si falla por columna category no existente en Supabase, reintentar sin ella (fallback automático)
+    if (!response.ok && response.status === 400) {
+      const { category, ...payloadWithoutCategory } = payload;
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: config.anonKey,
+          Authorization: `Bearer ${config.anonKey}`,
+          Prefer: 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify(payloadWithoutCategory),
+      });
+    }
 
     if (!response.ok) {
       console.warn('Fallo upsert con Supabase:', await response.text());

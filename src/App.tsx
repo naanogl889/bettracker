@@ -150,18 +150,29 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // APUESTA NUEVA (< 10s)
+  // APUESTA NUEVA O MATCHED BETTING
   const handleAddBet = async (
-    betData: Omit<Bet, 'id' | 'created_at' | 'status' | 'profit'>
+    betData: Omit<Bet, 'id' | 'created_at' | 'status' | 'profit'> & {
+      status?: 'pending' | 'won' | 'lost' | 'void';
+      profit?: number;
+      category?: 'value' | 'matched';
+    }
   ) => {
     const now = new Date().toISOString();
+    const isMatched = betData.category === 'matched';
     const newBet: Bet = {
       ...betData,
       id: `bet-${Date.now().toString(36)}`,
       created_at: now,
       updated_at: now,
-      status: 'pending',
-      profit: 0,
+      status: betData.status || 'pending',
+      profit:
+        betData.profit !== undefined
+          ? betData.profit
+          : betData.status === 'won'
+            ? Number((betData.stake * (betData.odds - 1)).toFixed(2))
+            : 0,
+      category: betData.category || 'value',
     };
 
     const nextBets = [newBet, ...bets];
@@ -170,8 +181,10 @@ export default function App() {
 
     addToast(
       'success',
-      '¡Apuesta registrada!',
-      `${newBet.bookmaker} • Stake ${newBet.stake}€ (@${newBet.odds}) — Estado: Pendiente`
+      isMatched ? '🎁 ¡Matched Betting registrado!' : '¡Apuesta registrada!',
+      isMatched
+        ? `${newBet.bookmaker} • Beneficio: +${newBet.profit}€ (${newBet.event || 'Promoción'})`
+        : `${newBet.bookmaker} • Stake ${newBet.stake}€ (@${newBet.odds}) — Estado: Pendiente`
     );
 
     // Sincronizar inmediatamente con Supabase (fuente online de datos)

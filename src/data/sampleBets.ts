@@ -138,17 +138,12 @@ export const SAMPLE_BETS: Bet[] = [
 
 export const COMMON_BOOKMAKERS = [
   'Bet365',
-  'Pinnacle',
   'Betfair',
+  'William Hill',
   'Winamax',
   'Codere',
   'Bwin',
-  'Sportium',
-  'Luckia',
-  '1xBet',
-  'MarathonBet',
-  'William Hill',
-  'Interwetten'
+  'Otras',
 ];
 
 export const COMMON_SPORTS = [

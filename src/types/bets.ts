@@ -13,11 +13,13 @@ export interface Bet {
   status: BetStatus;  // Estado: pendiente, ganada, perdida, nula
   profit: number;     // Beneficio calculado
   notes?: string;     // Notas opcionales
+  category?: 'value' | 'matched'; // Estrategia: valor o matched betting (promociones, bonos, surebets)
 }
 
 export interface BetFilter {
   bookmaker?: string;
   status?: BetStatus | 'all';
+  category?: 'all' | 'value' | 'matched';
   sport?: string;
   dateRange?: 'all' | 'today' | '7days' | '30days' | 'this_month' | 'custom';
   startDate?: string;

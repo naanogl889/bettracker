@@ -343,3 +343,23 @@ export function calculateComparativeMetrics(bets: Bet[]) {
   };
 }
 
+/**
+ * Desglosa las estadísticas entre Apuestas de Valor y Matched Betting (Bonos/Surebets)
+ */
+export function calculateStrategyStats(bets: Bet[]) {
+  const valueBets = bets.filter((b) => !b.category || b.category === 'value');
+  const matchedBets = bets.filter((b) => b.category === 'matched');
+
+  const valueMetrics = calculateDashboardMetrics(valueBets);
+  const matchedMetrics = calculateDashboardMetrics(matchedBets);
+  const totalMetrics = calculateDashboardMetrics(bets);
+
+  return {
+    valueBets: valueMetrics,
+    matchedBets: matchedMetrics,
+    total: totalMetrics,
+    matchedCount: matchedBets.length,
+    valueCount: valueBets.length,
+  };
+}
+

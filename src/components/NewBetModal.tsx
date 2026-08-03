@@ -15,7 +15,13 @@ import { COMMON_BOOKMAKERS, COMMON_SPORTS } from '../data/sampleBets';
 interface NewBetModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddBet: (bet: Omit<Bet, 'id' | 'created_at' | 'status' | 'profit'>) => void;
+  onAddBet: (
+    bet: Omit<Bet, 'id' | 'created_at' | 'status' | 'profit'> & {
+      status?: 'pending' | 'won' | 'lost' | 'void';
+      profit?: number;
+      category?: 'value' | 'matched';
+    }
+  ) => void;
 }
 
 export const NewBetModal: React.FC<NewBetModalProps> = ({
@@ -23,8 +29,11 @@ export const NewBetModal: React.FC<NewBetModalProps> = ({
   onClose,
   onAddBet,
 }) => {
-  const [stake, setStake] = useState<string>('20');
-  const [odds, setOdds] = useState<string>('1.90');
+  const [category, setCategory] = useState<'value' | 'matched'>('value');
+  const [stake, setStake] = useState<string>('10');
+  const [odds, setOdds] = useState<string>('2');
+  const [matchedProfit, setMatchedProfit] = useState<string>('15');
+  const [matchedStatus, setMatchedStatus] = useState<'won' | 'pending'>('won');
   const [bookmaker, setBookmaker] = useState<string>(() => {
     return localStorage.getItem('bt_last_bookmaker') || 'Bet365';
   });
@@ -73,16 +82,26 @@ export const NewBetModal: React.FC<NewBetModalProps> = ({
     e.preventDefault();
     const numericStake = parseFloat(stake.replace(',', '.'));
     const numericOdds = parseFloat(odds.replace(',', '.'));
+    const numericMatchedProfit = parseFloat(matchedProfit.replace(',', '.'));
 
-    if (isNaN(numericStake) || numericStake <= 0) {
-      setError('Introduce un stake (cantidad apostada) válido mayor a 0');
-      stakeInputRef.current?.focus();
-      return;
+    if (category === 'value') {
+      if (isNaN(numericStake) || numericStake <= 0) {
+        setError('Introduce un stake (cantidad apostada) válido mayor a 0');
+        stakeInputRef.current?.focus();
+        return;
+      }
+      if (isNaN(numericOdds) || numericOdds < 1.01) {
+        setError('La cuota debe ser un número decimal mayor a 1.00 (ej: 1.85)');
+        return;
+      }
+    } else {
+      // Validación para Matched Betting / Promociones
+      if (isNaN(numericMatchedProfit)) {
+        setError('Introduce el beneficio esperado o garantizado (€)');
+        return;
+      }
     }
-    if (isNaN(numericOdds) || numericOdds < 1.01) {
-      setError('La cuota debe ser un número decimal mayor a 1.00 (ej: 1.85)');
-      return;
-    }
+
     if (!bookmaker.trim()) {
       setError('Debes especificar una casa de apuestas');
       return;
@@ -94,14 +113,30 @@ export const NewBetModal: React.FC<NewBetModalProps> = ({
       localStorage.setItem('bt_last_sport', sport.trim());
     }
 
-    onAddBet({
-      stake: numericStake,
-      odds: numericOdds,
-      bookmaker: bookmaker.trim(),
-      event: event.trim() || undefined,
-      sport: sport.trim() || undefined,
-      event_date: eventDate || undefined,
-    });
+    if (category === 'value') {
+      onAddBet({
+        stake: numericStake,
+        odds: numericOdds,
+        bookmaker: bookmaker.trim(),
+        event: event.trim() || undefined,
+        sport: sport.trim() || undefined,
+        event_date: eventDate || undefined,
+        category: 'value',
+      });
+    } else {
+      // Registro de Matched Betting / Bono
+      onAddBet({
+        stake: isNaN(numericStake) || numericStake <= 0 ? 0 : numericStake,
+        odds: isNaN(numericOdds) || numericOdds <= 1 ? 1.0 : numericOdds,
+        bookmaker: bookmaker.trim(),
+        event: event.trim() ? `[MATCHED] ${event.trim()}` : '[MATCHED] Bono / Promoción',
+        sport: sport.trim() || 'Promociones',
+        event_date: eventDate || undefined,
+        status: matchedStatus,
+        profit: matchedStatus === 'won' ? numericMatchedProfit : 0,
+        category: 'matched',
+      });
+    }
 
     // Reiniciar evento para la siguiente apuesta
     setEvent('');
@@ -130,15 +165,23 @@ export const NewBetModal: React.FC<NewBetModalProps> = ({
         {/* Cabecera modal limpia estilo Linear / Stripe */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-950/60">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <div
+              className={`w-8 h-8 rounded-xl flex items-center justify-center border ${
+                category === 'value'
+                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                  : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
+              }`}
+            >
               <Zap className="w-4 h-4" />
             </div>
             <div>
               <h2 className="text-base font-bold text-white tracking-tight">
-                Nueva Apuesta
+                {category === 'value' ? 'Nueva Apuesta de Valor' : 'Nuevo Matched Betting'}
               </h2>
               <p className="text-xs text-zinc-400">
-                Tabulación rápida: Stake → Cuota → Casa → Evento → Deporte → Guardar
+                {category === 'value'
+                  ? 'Tabulación rápida: Stake → Cuota → Casa → Evento → Deporte → Guardar'
+                  : 'Bonos, surebets y promociones — se suman directamente a tu balance y ROI'}
               </p>
             </div>
           </div>
@@ -151,6 +194,32 @@ export const NewBetModal: React.FC<NewBetModalProps> = ({
           </button>
         </div>
 
+        {/* Pestañas de categoría: Valor vs Matched Betting */}
+        <div className="flex border-b border-zinc-800 bg-zinc-950/40">
+          <button
+            type="button"
+            onClick={() => setCategory('value')}
+            className={`flex-1 py-2.5 text-xs font-bold transition flex items-center justify-center gap-1.5 border-b-2 ${
+              category === 'value'
+                ? 'text-emerald-400 border-emerald-500 bg-emerald-500/5'
+                : 'text-zinc-400 border-transparent hover:text-zinc-200'
+            }`}
+          >
+            <span>📈 Apuesta de Valor (+EV)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCategory('matched')}
+            className={`flex-1 py-2.5 text-xs font-bold transition flex items-center justify-center gap-1.5 border-b-2 ${
+              category === 'matched'
+                ? 'text-indigo-400 border-indigo-500 bg-indigo-500/5'
+                : 'text-zinc-400 border-transparent hover:text-zinc-200'
+            }`}
+          >
+            <span>🎁 Matched Betting / Bono</span>
+          </button>
+        </div>
+
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
           {error && (
@@ -160,81 +229,144 @@ export const NewBetModal: React.FC<NewBetModalProps> = ({
             </div>
           )}
 
-          {/* Fila 1: Stake y Cuota (Orden de tabulación 1 y 2) */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* Stake (Tab 1) */}
-            <div>
-              <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center justify-between">
-                <span>1. STAKE (€)*</span>
-                <span className="text-[10px] text-zinc-500 font-normal">
-                  Tab 1
-                </span>
-              </label>
-              <div className="relative">
+          {category === 'value' ? (
+            /* Fila 1: Stake y Cuota (Apuesta de Valor - intacto) */
+            <div className="grid grid-cols-2 gap-4">
+              {/* Stake (Tab 1) */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center justify-between">
+                  <span>1. STAKE (€)*</span>
+                  <span className="text-[10px] text-zinc-500 font-normal">
+                    Tab 1
+                  </span>
+                </label>
+                <div className="relative">
+                  <input
+                    ref={stakeInputRef}
+                    tabIndex={1}
+                    type="text"
+                    inputMode="decimal"
+                    required={category === 'value'}
+                    value={stake}
+                    onChange={(e) => setStake(e.target.value)}
+                    placeholder="10"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-mono font-bold text-lg focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition"
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 text-sm font-semibold">
+                    €
+                  </span>
+                </div>
+                {/* Presets rápidos de stake */}
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  {[10, 20, 50, 100].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => {
+                        setStake(val.toString());
+                        stakeInputRef.current?.focus();
+                      }}
+                      className={`px-2 py-0.5 rounded text-[11px] font-mono border transition ${
+                        stake === val.toString()
+                          ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 font-semibold'
+                          : 'bg-zinc-800/60 border-zinc-700/60 text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      {val}€
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cuota (Tab 2) */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center justify-between">
+                  <span>2. CUOTA*</span>
+                  <span className="text-[10px] text-zinc-500 font-normal">
+                    Tab 2
+                  </span>
+                </label>
                 <input
-                  ref={stakeInputRef}
-                  tabIndex={1}
+                  tabIndex={2}
                   type="text"
                   inputMode="decimal"
-                  required
-                  value={stake}
-                  onChange={(e) => setStake(e.target.value)}
-                  placeholder="20"
+                  required={category === 'value'}
+                  value={odds}
+                  onChange={(e) => setOdds(e.target.value)}
+                  placeholder="2"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-mono font-bold text-lg focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition"
                 />
-                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 text-sm font-semibold">
-                  €
-                </span>
+                <div className="flex items-center justify-between mt-1.5 text-[11px] text-zinc-400 font-mono">
+                  <span>Ganancia potencial:</span>
+                  <span className="text-emerald-400 font-bold">
+                    +{potentialProfit} €
+                  </span>
+                </div>
               </div>
-              {/* Presets rápidos de stake */}
-              <div className="flex items-center gap-1.5 mt-1.5">
-                {[10, 20, 50, 100].map((val) => (
+            </div>
+          ) : (
+            /* Fila alternativa para Matched Betting / Promociones */
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center justify-between">
+                  <span>BENEFICIO DE LA PROMOCIÓN (€)*</span>
+                  <span className="text-[10px] text-indigo-400 font-normal">
+                    Asegurado / Libre
+                  </span>
+                </label>
+                <div className="relative">
+                  <input
+                    ref={stakeInputRef}
+                    tabIndex={1}
+                    type="text"
+                    inputMode="decimal"
+                    required={category === 'matched'}
+                    value={matchedProfit}
+                    onChange={(e) => setMatchedProfit(e.target.value)}
+                    placeholder="15"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-indigo-500/70 text-white font-mono font-bold text-lg focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-500/50 transition"
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 text-sm font-semibold">
+                    €
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-400 mt-1">
+                  Ej: +15€ libres de bono de bienvenida, freebet o surebet.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1.5">
+                  ESTADO DE PROMOCIÓN
+                </label>
+                <div className="grid grid-cols-1 gap-2">
                   <button
-                    key={val}
                     type="button"
-                    tabIndex={-1}
-                    onClick={() => {
-                      setStake(val.toString());
-                      stakeInputRef.current?.focus();
-                    }}
-                    className={`px-2 py-0.5 rounded text-[11px] font-mono border transition ${
-                      stake === val.toString()
-                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 font-semibold'
-                        : 'bg-zinc-800/60 border-zinc-700/60 text-zinc-400 hover:text-white'
+                    onClick={() => setMatchedStatus('won')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 ${
+                      matchedStatus === 'won'
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white'
                     }`}
                   >
-                    {val}€
+                    <span>✅ Liberado / Ya Ganado</span>
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => setMatchedStatus('pending')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 ${
+                      matchedStatus === 'pending'
+                        ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <span>⏳ Pendiente de resolución</span>
+                  </button>
+                </div>
               </div>
             </div>
-
-            {/* Cuota (Tab 2) */}
-            <div>
-              <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center justify-between">
-                <span>2. CUOTA*</span>
-                <span className="text-[10px] text-zinc-500 font-normal">
-                  Tab 2
-                </span>
-              </label>
-              <input
-                tabIndex={2}
-                type="text"
-                inputMode="decimal"
-                required
-                value={odds}
-                onChange={(e) => setOdds(e.target.value)}
-                placeholder="1.90"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-mono font-bold text-lg focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition"
-              />
-              <div className="flex items-center justify-between mt-1.5 text-[11px] text-zinc-400 font-mono">
-                <span>Ganancia potencial:</span>
-                <span className="text-emerald-400 font-bold">
-                  +{potentialProfit} €
-                </span>
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* Casa de Apuestas (Tab 3) */}
           <div>
@@ -250,12 +382,12 @@ export const NewBetModal: React.FC<NewBetModalProps> = ({
               required
               value={bookmaker}
               onChange={(e) => setBookmaker(e.target.value)}
-              placeholder="Ej: Bet365, Pinnacle, Betfair..."
+              placeholder="Ej: Bet365, Betfair, William Hill..."
               className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition"
             />
             {/* Presets de casas */}
             <div className="flex flex-wrap gap-1.5 mt-2">
-              {COMMON_BOOKMAKERS.slice(0, 6).map((bm) => (
+              {COMMON_BOOKMAKERS.map((bm) => (
                 <button
                   key={bm}
                   type="button"

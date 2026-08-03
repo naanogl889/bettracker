@@ -457,8 +457,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         <div className="font-bold text-white truncate">
                           {bet.event || 'Sin evento especificado'}
                         </div>
-                        <div className="text-[11px] text-zinc-400">
-                          {bet.sport || 'Fútbol'}
+                        <div className="text-[11px] text-zinc-400 flex items-center gap-1.5">
+                          {bet.category === 'matched' && (
+                            <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30 text-[10px]">
+                              🎁 Matched
+                            </span>
+                          )}
+                          <span>{bet.sport || 'Fútbol'}</span>
                         </div>
                       </td>
 
@@ -469,12 +474,20 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
                       {/* Stake */}
                       <td className="py-3.5 px-4 text-right font-mono font-bold text-white whitespace-nowrap">
-                        {bet.stake} €
+                        {bet.category === 'matched' ? (
+                          <span className="text-zinc-500 font-normal">—</span>
+                        ) : (
+                          `${bet.stake} €`
+                        )}
                       </td>
 
                       {/* Cuota */}
                       <td className="py-3.5 px-4 text-right font-mono font-semibold text-zinc-300 whitespace-nowrap">
-                        @{bet.odds}
+                        {bet.category === 'matched' ? (
+                          <span className="text-zinc-500 font-normal">—</span>
+                        ) : (
+                          `@${bet.odds}`
+                        )}
                       </td>
 
                       {/* Beneficio */}
@@ -593,7 +606,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   Stake
                 </span>
                 <span className="text-base font-bold font-mono text-white">
-                  {selectedBetDetail.stake}€
+                  {selectedBetDetail.category === 'matched'
+                    ? '—'
+                    : `${selectedBetDetail.stake}€`}
                 </span>
               </div>
               <div>
@@ -601,7 +616,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   Cuota
                 </span>
                 <span className="text-base font-bold font-mono text-emerald-400">
-                  @{selectedBetDetail.odds}
+                  {selectedBetDetail.category === 'matched'
+                    ? '—'
+                    : `@${selectedBetDetail.odds}`}
                 </span>
               </div>
               <div>

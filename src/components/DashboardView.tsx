@@ -13,6 +13,7 @@ import {
   Plus,
   Clock,
   Zap,
+  Gift,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -30,6 +31,7 @@ import {
   calculateBookmakerStats,
   calculateSportStats,
   calculateComparativeMetrics,
+  calculateStrategyStats,
 } from '../utils/metrics';
 
 interface DashboardViewProps {
@@ -44,10 +46,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateToTab,
 }) => {
   const [chartPeriod, setChartPeriod] = useState<'all' | 'last10' | 'last30'>('all');
+  const [bookmakerMode, setBookmakerMode] = useState<'value' | 'matched' | 'all'>('value');
 
-  const metrics = calculateDashboardMetrics(bets);
+  const valueBets = React.useMemo(() => {
+    return bets.filter((b) => !b.category || b.category === 'value');
+  }, [bets]);
+
+  const metrics = calculateDashboardMetrics(valueBets);
+  const strategyStats = calculateStrategyStats(bets);
   const cumulativeData = calculateCumulativeProfit(bets);
-  const comp = calculateComparativeMetrics(bets);
+  const comp = calculateComparativeMetrics(valueBets);
 
   const filteredChartData = React.useMemo(() => {
     if (chartPeriod === 'last10') {
@@ -59,8 +67,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return cumulativeData;
   }, [cumulativeData, chartPeriod]);
 
-  const bookmakerStats = calculateBookmakerStats(bets);
-  const sportStats = calculateSportStats(bets);
+  const filteredBetsForBookmaker = React.useMemo(() => {
+    if (bookmakerMode === 'value') {
+      return bets.filter((b) => !b.category || b.category === 'value');
+    }
+    if (bookmakerMode === 'matched') {
+      return bets.filter((b) => b.category === 'matched');
+    }
+    return bets;
+  }, [bets, bookmakerMode]);
+
+  const bookmakerStats = calculateBookmakerStats(filteredBetsForBookmaker);
+  const sportStats = calculateSportStats(valueBets);
 
   const recentBets = React.useMemo(() => {
     return [...bets]
@@ -111,7 +129,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-              Resumen en Tiempo Real
+              Resumen en Tiempo Real • Apuestas de Valor (+EV)
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight mt-1">
@@ -319,6 +337,123 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
+      {/* Desglose de Beneficios por Estrategia: Apuestas de Valor vs Matched Betting */}
+      <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 sm:p-5">
+        <div className="flex items-center justify-between mb-3.5">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+            <span>Desglose de Beneficios por Estrategia</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] bg-zinc-800 text-zinc-300 font-normal">
+              Valor vs. Matched Betting
+            </span>
+          </h3>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
+          {/* 1. Apuestas de Valor (+EV) */}
+          <div className="p-3.5 rounded-xl bg-zinc-950/70 border border-emerald-500/20 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                <Zap className="w-3.5 h-3.5" />
+                <span>Apuestas de Valor (+EV)</span>
+              </div>
+              <div className="text-xl sm:text-2xl font-bold text-white font-mono">
+                {strategyStats.valueBets.totalProfit >= 0 ? '+' : ''}
+                {strategyStats.valueBets.totalProfit.toLocaleString('es-ES', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                €
+              </div>
+              <div className="text-[11px] text-zinc-400">
+                ROI{' '}
+                <strong
+                  className={
+                    strategyStats.valueBets.roi >= 0
+                      ? 'text-emerald-400'
+                      : 'text-rose-400'
+                  }
+                >
+                  {strategyStats.valueBets.roi}%
+                </strong>{' '}
+                • {strategyStats.valueCount} apuestas
+              </div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+          </div>
+
+          {/* 2. Matched Betting / Promos */}
+          <div className="p-3.5 rounded-xl bg-zinc-950/70 border border-indigo-500/30 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-400">
+                <Gift className="w-3.5 h-3.5" />
+                <span>Matched Betting / Promos</span>
+              </div>
+              <div className="text-xl sm:text-2xl font-bold text-indigo-300 font-mono">
+                {strategyStats.matchedBets.totalProfit >= 0 ? '+' : ''}
+                {strategyStats.matchedBets.totalProfit.toLocaleString('es-ES', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                €
+              </div>
+              <div className="text-[11px] text-zinc-400">
+                <span className="text-indigo-400 font-medium">Libre de riesgo</span> •{' '}
+                {strategyStats.matchedCount} bonos
+              </div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+              <Gift className="w-5 h-5" />
+            </div>
+          </div>
+
+          {/* 3. Beneficio Total Combinado */}
+          <div className="p-3.5 rounded-xl bg-zinc-950/80 border border-zinc-700/80 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-300">
+                <DollarSign className="w-3.5 h-3.5 text-amber-400" />
+                <span>Beneficio Total Combinado</span>
+              </div>
+              <div
+                className={`text-xl sm:text-2xl font-bold font-mono ${
+                  strategyStats.total.totalProfit >= 0
+                    ? 'text-emerald-400'
+                    : 'text-rose-400'
+                }`}
+              >
+                {strategyStats.total.totalProfit >= 0 ? '+' : ''}
+                {strategyStats.total.totalProfit.toLocaleString('es-ES', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                €
+              </div>
+              <div className="text-[11px] text-zinc-400">
+                Balance en caja •{' '}
+                <strong className="text-zinc-200">
+                  {strategyStats.total.totalBets}
+                </strong>{' '}
+                registros
+              </div>
+            </div>
+            <div
+              className={`p-2.5 rounded-xl border ${
+                strategyStats.total.totalProfit >= 0
+                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                  : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+              }`}
+            >
+              {strategyStats.total.totalProfit >= 0 ? (
+                <ArrowUpRight className="w-5 h-5" />
+              ) : (
+                <ArrowDownRight className="w-5 h-5" />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Grid Secundario: Gráfica de Evolución + Historial Reciente */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Gráfica Evolución Beneficio Acumulado (8 columnas) */}
@@ -468,9 +603,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <p className="text-sm font-semibold text-white truncate">
                             {bet.event || `${bet.sport || 'Deporte'} • ${bet.bookmaker}`}
                           </p>
-                          <p className="text-[11px] text-zinc-400 truncate">
-                            {bet.bookmaker} • Stake {bet.stake}€ • @
-                            <span className="font-mono">{bet.odds}</span>
+                          <p className="text-[11px] text-zinc-400 truncate flex items-center gap-1.5">
+                            {bet.category === 'matched' ? (
+                              <>
+                                <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30 text-[10px]">
+                                  🎁 Matched
+                                </span>
+                                <span>{bet.bookmaker} • Promoción / Bono</span>
+                              </>
+                            ) : (
+                              <span>
+                                {bet.bookmaker} • Stake {bet.stake}€ • @
+                                <span className="font-mono">{bet.odds}</span>
+                              </span>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -521,60 +667,97 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Rendimiento por Casa de Apuestas */}
         <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5">
-          <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-3 flex items-center justify-between">
-            <span>Rendimiento por Casa de Apuestas</span>
-            <span className="text-xs text-zinc-400 font-normal">
-              Top rentabilidad
-            </span>
-          </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+              Rendimiento por Casa de Apuestas
+            </h3>
+            <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+              {[
+                { id: 'value', label: 'Apuestas de Valor' },
+                { id: 'matched', label: 'Matched Betting' },
+                { id: 'all', label: 'Global' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setBookmakerMode(tab.id as any)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
+                    bookmakerMode === tab.id
+                      ? tab.id === 'matched'
+                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-zinc-800 text-zinc-400 font-semibold">
                   <th className="pb-2">Casa</th>
-                  <th className="pb-2 text-right">Apuestas</th>
+                  <th className="pb-2 text-right">
+                    {bookmakerMode === 'matched' ? 'Bonos' : 'Apuestas'}
+                  </th>
                   <th className="pb-2 text-right">Stake</th>
                   <th className="pb-2 text-right">ROI %</th>
                   <th className="pb-2 text-right">Beneficio</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/50">
-                {bookmakerStats.slice(0, 5).map((stat) => {
-                  const pos = stat.profit >= 0;
-                  return (
-                    <tr
-                      key={stat.bookmaker}
-                      className="hover:bg-zinc-800/40 transition"
-                    >
-                      <td className="py-2.5 font-semibold text-white">
-                        {stat.bookmaker}
-                      </td>
-                      <td className="py-2.5 text-right text-zinc-300">
-                        {stat.betsCount}
-                      </td>
-                      <td className="py-2.5 text-right font-mono text-zinc-400">
-                        {stat.stake}€
-                      </td>
-                      <td
-                        className={`py-2.5 text-right font-semibold ${
-                          stat.roi >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                        }`}
+                {bookmakerStats.length > 0 ? (
+                  bookmakerStats.slice(0, 5).map((stat) => {
+                    const pos = stat.profit >= 0;
+                    const isMatchedMode = bookmakerMode === 'matched' || stat.stake === 0;
+                    return (
+                      <tr
+                        key={stat.bookmaker}
+                        className="hover:bg-zinc-800/40 transition"
                       >
-                        {stat.roi >= 0 ? '+' : ''}
-                        {stat.roi}%
-                      </td>
-                      <td
-                        className={`py-2.5 text-right font-mono font-bold ${
-                          pos ? 'text-emerald-400' : 'text-rose-400'
-                        }`}
-                      >
-                        {pos ? '+' : ''}
-                        {stat.profit}€
-                      </td>
-                    </tr>
-                  );
-                })}
+                        <td className="py-2.5 font-semibold text-white">
+                          {stat.bookmaker}
+                        </td>
+                        <td className="py-2.5 text-right text-zinc-300">
+                          {stat.betsCount}
+                        </td>
+                        <td className="py-2.5 text-right font-mono text-zinc-400">
+                          {isMatchedMode ? '—' : `${stat.stake}€`}
+                        </td>
+                        <td
+                          className={`py-2.5 text-right font-semibold ${
+                            isMatchedMode
+                              ? 'text-zinc-500'
+                              : stat.roi >= 0
+                              ? 'text-emerald-400'
+                              : 'text-rose-400'
+                          }`}
+                        >
+                          {isMatchedMode
+                            ? '—'
+                            : `${stat.roi >= 0 ? '+' : ''}${stat.roi}%`}
+                        </td>
+                        <td
+                          className={`py-2.5 text-right font-mono font-bold ${
+                            pos ? 'text-emerald-400' : 'text-rose-400'
+                          }`}
+                        >
+                          {pos ? '+' : ''}
+                          {stat.profit}€
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-zinc-500">
+                      No hay registros en esta categoría.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
