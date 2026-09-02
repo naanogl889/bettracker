@@ -382,7 +382,7 @@ export const NewBetModal: React.FC<NewBetModalProps> = ({
               required
               value={bookmaker}
               onChange={(e) => setBookmaker(e.target.value)}
-              placeholder="Ej: Bet365, Betfair, William Hill..."
+              placeholder="Ej: Bet365, 888sport, Betfair o escribe otra..."
               className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition"
             />
             {/* Presets de casas */}
@@ -395,8 +395,8 @@ export const NewBetModal: React.FC<NewBetModalProps> = ({
                   onClick={() => setBookmaker(bm)}
                   className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
                     bookmaker === bm
-                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                      : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-400 hover:text-white'
+                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 font-semibold'
+                      : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-400 hover:text-white hover:border-zinc-500'
                   }`}
                 >
                   {bm}

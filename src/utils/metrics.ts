@@ -1,6 +1,7 @@
 import {
   Bet,
   BetStatus,
+  BookmakerMonthlyBreakdown,
   BookmakerStat,
   CumulativeProfitPoint,
   DashboardMetrics,
@@ -166,55 +167,233 @@ export function calculateCumulativeProfit(
 
 /**
  * Estadísticas por Casa de Apuestas
+ * Garantiza que aparezcan todas las casas que han tenido al menos una apuesta en el historial.
  */
-export function calculateBookmakerStats(bets: Bet[]): BookmakerStat[] {
+export function calculateBookmakerStats(
+  bets: Bet[],
+  allHistoryBets?: Bet[]
+): BookmakerStat[] {
+  // Lista de referencia para canonizar nombres
+  const sourceForBookmakers =
+    allHistoryBets && allHistoryBets.length > 0 ? allHistoryBets : bets;
+
+  // Mapa de nombres canónicos para evitar duplicados por minúsculas/mayúsculas
+  const canonicalMap = new Map<string, string>(); // lowerName -> canonicalName
+
+  for (const bet of sourceForBookmakers) {
+    const raw = (bet.bookmaker || '').trim();
+    if (!raw) continue;
+    const lower = raw.toLowerCase();
+    if (!canonicalMap.has(lower)) {
+      canonicalMap.set(lower, raw);
+    } else {
+      // Si la versión actual tiene mayúscula y la anterior no, preferir la mejor capitalizada
+      const existing = canonicalMap.get(lower)!;
+      if (raw[0] === raw[0].toUpperCase() && existing[0] !== existing[0].toUpperCase()) {
+        canonicalMap.set(lower, raw);
+      }
+    }
+  }
+
+  // Estructura de acumulación para todas las casas encontradas en el historial
   const map = new Map<
     string,
-    { betsCount: number; stake: number; profit: number; won: number; resolved: number }
+    {
+      betsCount: number;
+      stake: number;
+      totalStake: number;
+      profit: number;
+      won: number;
+      lost: number;
+      pending: number;
+      voidCount: number;
+      resolved: number;
+      monthlyMap: Map<
+        string,
+        {
+          monthKey: string;
+          monthLabel: string;
+          profit: number;
+          betsCount: number;
+          stake: number;
+          wonBets: number;
+          lostBets: number;
+        }
+      >;
+    }
   >();
 
-  for (const bet of bets) {
-    const name = bet.bookmaker || 'Desconocida';
-    const current = map.get(name) || {
+  // Helper para obtener mes y etiqueta legible en español (ej: "2026-09", "Sep 26")
+  const MONTH_NAMES_ES = [
+    'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+    'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
+  ];
+
+  const getMonthInfo = (dateStr?: string) => {
+    let d: Date;
+    if (dateStr) {
+      d = new Date(dateStr);
+      if (isNaN(d.getTime())) {
+        d = new Date();
+      }
+    } else {
+      d = new Date();
+    }
+    const year = d.getFullYear();
+    const month = d.getMonth(); // 0-11
+    const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const monthLabel = `${MONTH_NAMES_ES[month]} ${String(year).slice(-2)}`;
+    return { monthKey, monthLabel };
+  };
+
+  // Inicializar cada casa presente en el historial con 0
+  for (const canonicalName of canonicalMap.values()) {
+    map.set(canonicalName, {
       betsCount: 0,
       stake: 0,
+      totalStake: 0,
       profit: 0,
       won: 0,
+      lost: 0,
+      pending: 0,
+      voidCount: 0,
       resolved: 0,
-    };
+      monthlyMap: new Map(),
+    });
+  }
+
+  // Si bets contiene alguna casa que no estaba en allHistoryBets, añadirla también
+  for (const bet of bets) {
+    const raw = (bet.bookmaker || '').trim() || 'Desconocida';
+    const lower = raw.toLowerCase();
+    let canonical = canonicalMap.get(lower);
+    if (!canonical) {
+      canonical = raw;
+      canonicalMap.set(lower, raw);
+    }
+
+    let current = map.get(canonical);
+    if (!current) {
+      current = {
+        betsCount: 0,
+        stake: 0,
+        totalStake: 0,
+        profit: 0,
+        won: 0,
+        lost: 0,
+        pending: 0,
+        voidCount: 0,
+        resolved: 0,
+        monthlyMap: new Map(),
+      };
+      map.set(canonical, current);
+    }
+
+    const betStake = Number(bet.stake) || 0;
+    const betProfit = Number(bet.profit) || 0;
 
     current.betsCount++;
-    if (bet.status === 'won' || bet.status === 'lost') {
-      current.stake += bet.stake;
-      current.profit += bet.profit;
+    current.totalStake += betStake;
+
+    const isResolved = bet.status === 'won' || bet.status === 'lost';
+    if (isResolved) {
+      current.stake += betStake;
+      current.profit += betProfit;
       current.resolved++;
       if (bet.status === 'won') {
         current.won++;
+      } else {
+        current.lost++;
+      }
+    } else if (bet.status === 'pending') {
+      current.pending++;
+    } else if (bet.status === 'void') {
+      current.voidCount++;
+    }
+
+    // Acumular en desglose mensual
+    const betDateStr = bet.event_date || bet.created_at;
+    const { monthKey, monthLabel } = getMonthInfo(betDateStr);
+    let mData = current.monthlyMap.get(monthKey);
+    if (!mData) {
+      mData = {
+        monthKey,
+        monthLabel,
+        profit: 0,
+        betsCount: 0,
+        stake: 0,
+        wonBets: 0,
+        lostBets: 0,
+      };
+      current.monthlyMap.set(monthKey, mData);
+    }
+
+    mData.betsCount++;
+    if (isResolved) {
+      mData.stake += betStake;
+      mData.profit += betProfit;
+      if (bet.status === 'won') {
+        mData.wonBets++;
+      } else {
+        mData.lostBets++;
       }
     }
-    map.set(name, current);
   }
 
   const result: BookmakerStat[] = [];
   for (const [bookmaker, stats] of map.entries()) {
     const roi =
-      stats.stake > 0 ? Number(((stats.profit / stats.stake) * 100).toFixed(2)) : 0;
+      stats.stake > 0
+        ? Number(((stats.profit / stats.stake) * 100).toFixed(2))
+        : 0;
     const winRate =
       stats.resolved > 0
         ? Number(((stats.won / stats.resolved) * 100).toFixed(1))
         : 0;
 
+    const monthlyBreakdown: Record<string, BookmakerMonthlyBreakdown> = {};
+    for (const [mKey, mStat] of stats.monthlyMap.entries()) {
+      const mRoi =
+        mStat.stake > 0
+          ? Number(((mStat.profit / mStat.stake) * 100).toFixed(2))
+          : 0;
+      monthlyBreakdown[mKey] = {
+        monthKey: mStat.monthKey,
+        monthLabel: mStat.monthLabel,
+        profit: Number(mStat.profit.toFixed(2)),
+        betsCount: mStat.betsCount,
+        stake: Number(mStat.stake.toFixed(2)),
+        wonBets: mStat.wonBets,
+        lostBets: mStat.lostBets,
+        roi: mRoi,
+      };
+    }
+
     result.push({
       bookmaker,
       betsCount: stats.betsCount,
       stake: Number(stats.stake.toFixed(2)),
+      totalStake: Number(stats.totalStake.toFixed(2)),
       profit: Number(stats.profit.toFixed(2)),
       roi,
       winRate,
+      wonBets: stats.won,
+      lostBets: stats.lost,
+      pendingBets: stats.pending,
+      voidBets: stats.voidCount,
+      monthlyBreakdown,
     });
   }
 
-  return result.sort((a, b) => b.profit - a.profit);
+  // Ordenar: primero las que tienen apuestas en la vista activa (por beneficio descendente),
+  // y luego las demás casas del historial alfabéticamente
+  return result.sort((a, b) => {
+    const hasA = a.betsCount > 0 ? 1 : 0;
+    const hasB = b.betsCount > 0 ? 1 : 0;
+    if (hasA !== hasB) return hasB - hasA;
+    if (b.profit !== a.profit) return b.profit - a.profit;
+    return a.bookmaker.localeCompare(b.bookmaker);
+  });
 }
 
 /**

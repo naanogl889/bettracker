@@ -53,6 +53,17 @@ export interface CumulativeProfitPoint {
   betCount: number;
 }
 
+export interface BookmakerMonthlyBreakdown {
+  monthKey: string; // '2026-09'
+  monthLabel: string; // 'Sep 26' or 'Septiembre 2026'
+  profit: number;
+  betsCount: number;
+  stake: number;
+  wonBets: number;
+  lostBets: number;
+  roi: number;
+}
+
 export interface BookmakerStat {
   bookmaker: string;
   betsCount: number;
@@ -60,6 +71,12 @@ export interface BookmakerStat {
   profit: number;
   roi: number;
   winRate: number;
+  wonBets?: number;
+  lostBets?: number;
+  pendingBets?: number;
+  voidBets?: number;
+  totalStake?: number;
+  monthlyBreakdown?: Record<string, BookmakerMonthlyBreakdown>; // monthKey -> breakdown
 }
 
 export interface SportStat {

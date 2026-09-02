@@ -163,8 +163,14 @@ export async function fetchBetsFromSupabase(
     if (!Array.isArray(data)) return null;
     return data.map((b) => ({
       ...b,
+      stake: Number(b.stake) || 0,
+      odds: Number(b.odds) || 1,
+      profit: Number(b.profit) || 0,
+      bookmaker: (b.bookmaker || '').trim() || 'Desconocida',
       category:
-        b.category === 'matched' || b.notes?.includes('[MATCHED]')
+        b.category === 'matched' ||
+        b.notes?.includes('[MATCHED]') ||
+        b.event?.includes('[MATCHED]')
           ? 'matched'
           : 'value',
     }));
