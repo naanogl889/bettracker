@@ -153,6 +153,23 @@ export const EditBetModal: React.FC<EditBetModalProps> = ({
                 onChange={(e) => setStake(e.target.value)}
                 className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-mono"
               />
+              <div className="flex items-center gap-1.5 mt-1.5">
+                {[5, 10, 20, 50, 100].map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setStake(val.toString())}
+                    className={`px-2 py-0.5 rounded text-[11px] font-mono border transition ${
+                      stake === val.toString()
+                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 font-semibold'
+                        : 'bg-zinc-800/60 border-zinc-700/60 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {val}€
+                  </button>
+                ))}
+              </div>
             </div>
             <div>
               <label className="block text-xs font-semibold text-zinc-300 mb-1">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   TrendingUp,
   TrendingDown,
@@ -24,6 +24,9 @@ import {
   Filter,
   ChevronDown,
   CalendarDays,
+  X,
+  Plus,
+  Eye,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -52,6 +55,7 @@ interface DashboardViewProps {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   bets,
+  onOpenNewBet,
   onNavigateToTab,
 }) => {
   const [chartPeriod, setChartPeriod] = useState<'all' | '30d' | '7d'>('all');
@@ -65,6 +69,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [bookmakerFilterActiveOnly, setBookmakerFilterActiveOnly] = useState(false);
   const [bookmakerSelectedMonth, setBookmakerSelectedMonth] = useState<string>('all');
   const [bookmakerExpandedRows, setBookmakerExpandedRows] = useState<Record<string, boolean>>({});
+
+  // Estados para la tarjeta de Beneficio Hoy / Ayer y el modal de desglose
+  const [dayCardPeriod, setDayCardPeriod] = useState<'today' | 'yesterday'>('today');
+  const [isDayBreakdownOpen, setIsDayBreakdownOpen] = useState(false);
+  const [breakdownActiveTab, setBreakdownActiveTab] = useState<'today' | 'yesterday'>('today');
 
   const valueBets = React.useMemo(() => {
     return bets.filter((b) => !b.category || b.category === 'value');
@@ -433,36 +442,110 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       .slice(0, 5);
   }, [bets]);
 
-  const todayBets = React.useMemo(() => {
-    const now = new Date();
-    const todayLocalYMD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-    return bets.filter((b) => {
-      if (b.event_date && b.event_date.startsWith(todayLocalYMD)) return true;
-      if (b.created_at && b.created_at.startsWith(todayLocalYMD)) return true;
-      if (b.created_at) {
-        const d = new Date(b.created_at);
-        if (
-          !isNaN(d.getTime()) &&
-          d.getFullYear() === now.getFullYear() &&
-          d.getMonth() === now.getMonth() &&
-          d.getDate() === now.getDate()
-        ) {
-          return true;
-        }
+  // Función para determinar si una apuesta pertenece a una fecha (por event_date o created_at)
+  const isBetOnTargetDate = useCallback((b: Bet, targetDate: Date) => {
+    const ymd = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
+    if (b.event_date && b.event_date.startsWith(ymd)) return true;
+    if (b.created_at && b.created_at.startsWith(ymd)) return true;
+    if (b.created_at) {
+      const d = new Date(b.created_at);
+      if (
+        !isNaN(d.getTime()) &&
+        d.getFullYear() === targetDate.getFullYear() &&
+        d.getMonth() === targetDate.getMonth() &&
+        d.getDate() === targetDate.getDate()
+      ) {
+        return true;
       }
-      return false;
-    });
-  }, [bets]);
+    }
+    if (b.event_date) {
+      const d = new Date(b.event_date);
+      if (
+        !isNaN(d.getTime()) &&
+        d.getFullYear() === targetDate.getFullYear() &&
+        d.getMonth() === targetDate.getMonth() &&
+        d.getDate() === targetDate.getDate()
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }, []);
 
-  const todayProfit = React.useMemo(() => {
-    return todayBets.reduce((acc, b) => {
+  const todayDate = React.useMemo(() => new Date(), []);
+  const yesterdayDate = React.useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d;
+  }, []);
+
+  const todayBets = React.useMemo(() => {
+    return bets.filter((b) => isBetOnTargetDate(b, todayDate));
+  }, [bets, todayDate, isBetOnTargetDate]);
+
+  const yesterdayBets = React.useMemo(() => {
+    return bets.filter((b) => isBetOnTargetDate(b, yesterdayDate));
+  }, [bets, yesterdayDate, isBetOnTargetDate]);
+
+  const calculateDayStats = (dayBets: Bet[]) => {
+    const profit = dayBets.reduce((acc, b) => {
       if (b.status === 'won' || b.status === 'lost') {
         return acc + (b.profit || 0);
       }
       return acc;
     }, 0);
-  }, [todayBets]);
+    const totalStake = dayBets.reduce((acc, b) => acc + (b.stake || 0), 0);
+    const wonCount = dayBets.filter((b) => b.status === 'won').length;
+    const lostCount = dayBets.filter((b) => b.status === 'lost').length;
+    const pendingCount = dayBets.filter((b) => b.status === 'pending').length;
+    const voidCount = dayBets.filter((b) => b.status === 'void').length;
+    const resolvedCount = wonCount + lostCount;
+    const winRate = resolvedCount > 0 ? Number(((wonCount / resolvedCount) * 100).toFixed(1)) : 0;
+    const roi = totalStake > 0 ? Number(((profit / totalStake) * 100).toFixed(2)) : 0;
+
+    return {
+      profit: Number(profit.toFixed(2)),
+      totalStake: Number(totalStake.toFixed(2)),
+      wonCount,
+      lostCount,
+      pendingCount,
+      voidCount,
+      resolvedCount,
+      winRate,
+      roi,
+      betsCount: dayBets.length,
+    };
+  };
+
+  const todayStats = React.useMemo(() => calculateDayStats(todayBets), [todayBets]);
+  const yesterdayStats = React.useMemo(() => calculateDayStats(yesterdayBets), [yesterdayBets]);
+
+  const activeCardStats = dayCardPeriod === 'today' ? todayStats : yesterdayStats;
+
+  const activeBreakdownStats = breakdownActiveTab === 'today' ? todayStats : yesterdayStats;
+  const activeBreakdownBets = breakdownActiveTab === 'today' ? todayBets : yesterdayBets;
+  const activeBreakdownDate = breakdownActiveTab === 'today' ? todayDate : yesterdayDate;
+
+  const formatBreakdownDate = (d: Date) => {
+    const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const monthNames = [
+      'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+      'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+    ];
+    return `${dayNames[d.getDay()]}, ${d.getDate()} de ${monthNames[d.getMonth()]} de ${d.getFullYear()}`;
+  };
+
+  // Atajo Esc para cerrar el modal de desglose
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isDayBreakdownOpen) return;
+      if (e.key === 'Escape') {
+        setIsDayBreakdownOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isDayBreakdownOpen]);
 
   const isProfitPositive = metrics.totalProfit >= 0;
 
@@ -555,41 +638,88 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          {/* 2. Beneficio de Hoy */}
-          <div className="p-3.5 rounded-xl bg-zinc-950/80 border border-sky-500/20 flex items-center justify-between">
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-sky-400">
-                <Calendar className="w-3.5 h-3.5" />
-                <span>Beneficio Hoy</span>
+          {/* 2. Beneficio de Hoy / Ayer (con selector rápido y desglose interactivo) */}
+          <div
+            onClick={() => {
+              setBreakdownActiveTab(dayCardPeriod);
+              setIsDayBreakdownOpen(true);
+            }}
+            className="group cursor-pointer p-3.5 rounded-xl bg-zinc-950/80 border border-sky-500/30 hover:border-sky-500/60 hover:bg-zinc-950/95 transition-all shadow-sm hover:shadow-sky-500/10 flex items-center justify-between relative"
+            title="Haz clic para ver el desglose detallado de apuestas de hoy o ayer"
+          >
+            <div className="space-y-1 w-full mr-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-sky-400">
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>{dayCardPeriod === 'today' ? 'Beneficio Hoy' : 'Beneficio Ayer'}</span>
+                </div>
+                {/* Botón pequeño para alternar ver hoy o ayer */}
+                <div
+                  className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 shadow-inner"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setDayCardPeriod('today')}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
+                      dayCardPeriod === 'today'
+                        ? 'bg-sky-500 text-zinc-950 shadow-sm'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                    title="Ver beneficio de hoy"
+                  >
+                    Hoy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDayCardPeriod('yesterday')}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
+                      dayCardPeriod === 'yesterday'
+                        ? 'bg-sky-500 text-zinc-950 shadow-sm'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                    title="Ver beneficio de ayer"
+                  >
+                    Ayer
+                  </button>
+                </div>
               </div>
+
               <div
                 className={`text-xl sm:text-2xl font-bold font-mono ${
-                  todayProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  activeCardStats.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'
                 }`}
               >
-                {todayProfit >= 0 ? '+' : ''}
-                {todayProfit.toLocaleString('es-ES', {
+                {activeCardStats.profit >= 0 ? '+' : ''}
+                {activeCardStats.profit.toLocaleString('es-ES', {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}{' '}
                 €
               </div>
-              <div className="text-[11px] text-zinc-400">
-                Hoy •{' '}
-                <strong className="text-zinc-200">
-                  {todayBets.length}
-                </strong>{' '}
-                {todayBets.length === 1 ? 'apuesta' : 'apuestas'}
+
+              <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                <span>
+                  {dayCardPeriod === 'today' ? 'Hoy' : 'Ayer'} •{' '}
+                  <strong className="text-zinc-200">
+                    {activeCardStats.betsCount}
+                  </strong>{' '}
+                  {activeCardStats.betsCount === 1 ? 'apuesta' : 'apuestas'}
+                </span>
+                <span className="text-[10px] text-sky-400 group-hover:text-sky-300 font-semibold flex items-center gap-0.5 transition">
+                  Ver desglose <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                </span>
               </div>
             </div>
+
             <div
-              className={`p-2.5 rounded-xl border ${
-                todayProfit >= 0
+              className={`p-2.5 rounded-xl border shrink-0 ${
+                activeCardStats.profit >= 0
                   ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
                   : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
               }`}
             >
-              {todayProfit >= 0 ? (
+              {activeCardStats.profit >= 0 ? (
                 <ArrowUpRight className="w-5 h-5" />
               ) : (
                 <ArrowDownRight className="w-5 h-5" />
@@ -1896,6 +2026,321 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* MODAL: Desglose de Ganancias y Pérdidas de Hoy y Ayer */}
+      {isDayBreakdownOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+          onClick={() => setIsDayBreakdownOpen(false)}
+        >
+          <div
+            className="w-full max-w-3xl bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Cabecera del modal */}
+            <div className="px-5 py-4 border-b border-zinc-800 bg-zinc-950/80 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 flex items-center justify-center">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>Desglose de Apuestas</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 font-semibold">
+                      {breakdownActiveTab === 'today' ? 'Hoy' : 'Ayer'}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-zinc-400">
+                    {formatBreakdownDate(activeBreakdownDate)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDayBreakdownOpen(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
+                title="Cerrar (Esc)"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Pestañas para alternar entre Hoy y Ayer dentro del modal */}
+            <div className="flex border-b border-zinc-800 bg-zinc-950/40 px-5 pt-2">
+              <button
+                type="button"
+                onClick={() => setBreakdownActiveTab('today')}
+                className={`flex-1 pb-2.5 text-xs font-bold transition flex items-center justify-center gap-2 border-b-2 ${
+                  breakdownActiveTab === 'today'
+                    ? 'text-sky-400 border-sky-500 bg-sky-500/5'
+                    : 'text-zinc-400 border-transparent hover:text-zinc-200'
+                }`}
+              >
+                <span>📅 Hoy</span>
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-zinc-800 text-zinc-300">
+                  {todayBets.length}
+                </span>
+                <span
+                  className={`text-[11px] font-mono font-bold ${
+                    todayStats.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  ({todayStats.profit >= 0 ? '+' : ''}{todayStats.profit.toFixed(2)}€)
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBreakdownActiveTab('yesterday')}
+                className={`flex-1 pb-2.5 text-xs font-bold transition flex items-center justify-center gap-2 border-b-2 ${
+                  breakdownActiveTab === 'yesterday'
+                    ? 'text-sky-400 border-sky-500 bg-sky-500/5'
+                    : 'text-zinc-400 border-transparent hover:text-zinc-200'
+                }`}
+              >
+                <span>📅 Ayer</span>
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-zinc-800 text-zinc-300">
+                  {yesterdayBets.length}
+                </span>
+                <span
+                  className={`text-[11px] font-mono font-bold ${
+                    yesterdayStats.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  ({yesterdayStats.profit >= 0 ? '+' : ''}{yesterdayStats.profit.toFixed(2)}€)
+                </span>
+              </button>
+            </div>
+
+            {/* Resumen Métrico Rápido del día seleccionado */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-4 bg-zinc-950/60 border-b border-zinc-800 text-xs">
+              <div className="p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">
+                  Beneficio Neto
+                </span>
+                <span
+                  className={`text-base font-extrabold font-mono ${
+                    activeBreakdownStats.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {activeBreakdownStats.profit >= 0 ? '+' : ''}
+                  {activeBreakdownStats.profit.toFixed(2)} €
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">
+                  Total Apostado (Stake)
+                </span>
+                <span className="text-base font-extrabold font-mono text-zinc-200">
+                  {activeBreakdownStats.totalStake.toFixed(2)} €
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">
+                  ROI del Día
+                </span>
+                <span
+                  className={`text-base font-extrabold font-mono ${
+                    activeBreakdownStats.roi >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {activeBreakdownStats.roi >= 0 ? '+' : ''}
+                  {activeBreakdownStats.roi}%
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">
+                  Resultado de Apuestas
+                </span>
+                <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5 pt-0.5">
+                  <span className="text-emerald-400 font-bold">{activeBreakdownStats.wonCount}W</span>
+                  <span>•</span>
+                  <span className="text-rose-400 font-bold">{activeBreakdownStats.lostCount}L</span>
+                  <span>•</span>
+                  <span className="text-amber-400 font-bold">{activeBreakdownStats.pendingCount}P</span>
+                  {activeBreakdownStats.voidCount > 0 && (
+                    <>
+                      <span>•</span>
+                      <span className="text-zinc-400">{activeBreakdownStats.voidCount}N</span>
+                    </>
+                  )}
+                </span>
+              </div>
+            </div>
+
+            {/* Listado de apuestas del día */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
+              {activeBreakdownBets.length === 0 ? (
+                <div className="text-center py-12 px-4 space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-zinc-800/80 border border-zinc-700/60 flex items-center justify-center mx-auto text-zinc-400">
+                    <Calendar className="w-6 h-6 text-zinc-500" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-zinc-300">
+                      No hay apuestas registradas en {breakdownActiveTab === 'today' ? 'hoy' : 'ayer'}
+                    </h4>
+                    <p className="text-xs text-zinc-500 max-w-sm mx-auto mt-1">
+                      Las apuestas que añadas para esta fecha o creadas en este día aparecerán desglosadas aquí con su beneficio individual.
+                    </p>
+                  </div>
+                  {onOpenNewBet && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDayBreakdownOpen(false);
+                        onOpenNewBet();
+                      }}
+                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-bold transition flex items-center gap-1.5 mx-auto active:scale-95 shadow-md shadow-emerald-500/10"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Añadir Apuesta Ahora</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                activeBreakdownBets.map((b) => {
+                  const isWon = b.status === 'won';
+                  const isLost = b.status === 'lost';
+                  const isPending = b.status === 'pending';
+                  const isVoid = b.status === 'void';
+                  const isMatched = b.category === 'matched';
+                  const potentialProfit = Number((b.stake * (b.odds - 1)).toFixed(2));
+
+                  return (
+                    <div
+                      key={b.id}
+                      className="p-3.5 rounded-xl bg-zinc-950/70 border border-zinc-800/80 hover:border-zinc-700 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                      {/* Información del evento y casa */}
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-zinc-800 border border-zinc-700 text-zinc-200">
+                            {b.bookmaker}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                              isMatched
+                                ? 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
+                                : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                            }`}
+                          >
+                            {isMatched ? '🎁 Matched / Bono' : '📈 Valor (+EV)'}
+                          </span>
+                          {b.sport && (
+                            <span className="text-[11px] text-zinc-400 font-medium">
+                              • {b.sport}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-zinc-500 font-mono">
+                            {b.created_at
+                              ? new Date(b.created_at).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : ''}
+                          </span>
+                        </div>
+
+                        <div className="text-sm font-semibold text-white">
+                          {b.event || (isMatched ? 'Bono / Promoción' : 'Apuesta sin evento especificado')}
+                        </div>
+
+                        <div className="text-xs text-zinc-400 flex items-center gap-2 font-mono">
+                          <span>
+                            Cuota: <strong className="text-zinc-200">{b.odds}</strong>
+                          </span>
+                          <span>•</span>
+                          <span>
+                            Stake: <strong className="text-zinc-200">{b.stake}€</strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Estado y Ganancia / Pérdida individual */}
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-2 sm:pt-0 border-zinc-800/80 gap-1.5 shrink-0">
+                        {/* Badge de Estado */}
+                        <div>
+                          {isWon && (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Ganada</span>
+                            </span>
+                          )}
+                          {isLost && (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40">
+                              Perdida
+                            </span>
+                          )}
+                          {isPending && (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              <span>Pendiente</span>
+                            </span>
+                          )}
+                          {isVoid && (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-zinc-800 text-zinc-400 border border-zinc-700">
+                              Nula
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Cantidad ganada o perdida */}
+                        <div className="text-right">
+                          {isWon && (
+                            <div className="text-base font-extrabold font-mono text-emerald-400">
+                              +{(b.profit || 0).toLocaleString('es-ES', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}{' '}
+                              €
+                            </div>
+                          )}
+                          {isLost && (
+                            <div className="text-base font-extrabold font-mono text-rose-400">
+                              {(b.profit || 0).toLocaleString('es-ES', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}{' '}
+                              €
+                            </div>
+                          )}
+                          {isPending && (
+                            <div className="text-xs font-mono text-amber-300 font-semibold">
+                              0.00 €{' '}
+                              <span className="text-[10px] text-zinc-400 font-normal">
+                                (Potencial +{potentialProfit}€)
+                              </span>
+                            </div>
+                          )}
+                          {isVoid && (
+                            <div className="text-xs font-mono text-zinc-400 font-semibold">
+                              0.00 € (Devuelta)
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Pie del modal */}
+            <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/80 flex items-center justify-between text-xs text-zinc-400">
+              <span>
+                {activeBreakdownBets.length}{' '}
+                {activeBreakdownBets.length === 1 ? 'apuesta registrada' : 'apuestas registradas'} en este día
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsDayBreakdownOpen(false)}
+                className="px-4 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-semibold transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

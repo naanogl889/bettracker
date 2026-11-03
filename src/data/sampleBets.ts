@@ -138,18 +138,24 @@ export const SAMPLE_BETS: Bet[] = [
 
 export const COMMON_BOOKMAKERS = [
   '888sport',
+  'Admiralbet',
   'Bet365',
   'Betfair',
   'Botemania',
   'Bwin',
+  'Codere',
   'Daznbet',
   'Gran Casino Madrid',
   'Kirolbet',
   'Luckia',
+  'Monopoly',
   'Olybet',
   'Solcasino',
+  'Speedybet',
   'Sportium',
+  'Tonybet',
   'William Hill',
+  'Winamax',
 ];
 
 export const COMMON_SPORTS = [

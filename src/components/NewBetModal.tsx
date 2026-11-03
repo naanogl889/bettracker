@@ -258,7 +258,7 @@ export const NewBetModal: React.FC<NewBetModalProps> = ({
                 </div>
                 {/* Presets rápidos de stake */}
                 <div className="flex items-center gap-1.5 mt-1.5">
-                  {[10, 20, 50, 100].map((val) => (
+                  {[5, 10, 20, 50, 100].map((val) => (
                     <button
                       key={val}
                       type="button"
