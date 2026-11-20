@@ -87,3 +87,109 @@ export interface SportStat {
   roi: number;
   winRate: number;
 }
+
+export interface OddsRangeStat {
+  range: string;
+  betsCount: number;
+  wonBets: number;
+  lostBets: number;
+  stake: number;
+  profit: number;
+  roi: number;
+  winRate: number;
+  avgOdds: number;
+  impliedWinRate: number;
+  edgePercent: number;
+}
+
+export interface StakeRangeStat {
+  range: string;
+  betsCount: number;
+  wonBets: number;
+  lostBets: number;
+  stake: number;
+  profit: number;
+  roi: number;
+  winRate: number;
+}
+
+export interface WeekdayStat {
+  dayIndex: number; // 0 = Lun ... 6 = Dom
+  dayLabel: string;
+  shortLabel: string;
+  betsCount: number;
+  wonBets: number;
+  lostBets: number;
+  stake: number;
+  profit: number;
+  roi: number;
+  winRate: number;
+}
+
+export interface DrawdownPoint {
+  date: string;
+  formattedDate: string;
+  fullDate: string;
+  cumulativeProfit: number;
+  peakProfit: number;
+  drawdown: number;
+  dailyProfit: number;
+}
+
+export interface RiskStreakMetrics {
+  drawdownSeries: DrawdownPoint[];
+  maxDrawdown: number;
+  maxDrawdownDate: string;
+  profitFactor: number | null; // null cuando no hay pérdidas (infinito)
+  grossWins: number;
+  grossLosses: number;
+  bestWinStreak: number;
+  worstLossStreak: number;
+  maxSingleWin: number;
+  maxSingleLoss: number;
+  activeDays: number;
+  positiveDays: number;
+  negativeDays: number;
+  breakEvenDays: number;
+  positiveDaysRate: number;
+  avgDailyProfit: number;
+}
+
+export interface DailyHeatmapDay {
+  date: string; // YYYY-MM-DD
+  profit: number;
+  betsCount: number;
+  wonBets: number;
+  lostBets: number;
+  stake: number;
+}
+
+export interface AdvancedBookmakerStat {
+  bookmaker: string;
+  betsCount: number;
+  resolvedCount: number;
+  wonBets: number;
+  lostBets: number;
+  pendingBets: number;
+  stake: number;
+  profit: number;
+  roi: number;
+  winRate: number;
+  avgOdds: number;
+  avgStake: number;
+  volumeSharePercent: number;
+  maxWin: number;
+}
+
+export interface AdvancedBookmakerInsights {
+  items: AdvancedBookmakerStat[];
+  topProfitBookmaker: AdvancedBookmakerStat | null;
+  worstProfitBookmaker: AdvancedBookmakerStat | null;
+  mostBetsBookmaker: AdvancedBookmakerStat | null;
+  highestStakeBookmaker: AdvancedBookmakerStat | null;
+  bestRoiBookmaker: AdvancedBookmakerStat | null;
+  bestWinRateBookmaker: AdvancedBookmakerStat | null;
+  totalBetsCount: number;
+  totalResolvedStake: number;
+}
+

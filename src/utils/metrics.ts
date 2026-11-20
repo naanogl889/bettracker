@@ -1,11 +1,19 @@
 import {
+  AdvancedBookmakerInsights,
+  AdvancedBookmakerStat,
   Bet,
   BetStatus,
   BookmakerMonthlyBreakdown,
   BookmakerStat,
   CumulativeProfitPoint,
+  DailyHeatmapDay,
   DashboardMetrics,
+  DrawdownPoint,
+  OddsRangeStat,
+  RiskStreakMetrics,
   SportStat,
+  StakeRangeStat,
+  WeekdayStat,
 } from '../types/bets';
 
 /**
@@ -541,4 +549,514 @@ export function calculateStrategyStats(bets: Bet[]) {
     valueCount: valueBets.length,
   };
 }
+
+/**
+ * Extrae una fecha YYYY-MM-DD estable evitando desplazamientos por zona horaria
+ */
+export function extractStableYMD(bet: Bet): string | null {
+  const raw = bet.event_date || bet.created_at;
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return raw.slice(0, 10);
+  }
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function parseLocalDateFromYMD(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map((n) => parseInt(n, 10));
+  return new Date(y, m - 1, d, 12, 0, 0);
+}
+
+/**
+ * 1. Rendimiento por Rangos de Cuota (con comparación Win Rate real vs implícito)
+ */
+export function calculateOddsRangeStats(bets: Bet[]): OddsRangeStat[] {
+  const buckets = [
+    { range: '< 1.50', min: 0, max: 1.5 },
+    { range: '1.50 - 1.99', min: 1.5, max: 2.0 },
+    { range: '2.00 - 2.99', min: 2.0, max: 3.0 },
+    { range: '3.00 - 4.99', min: 3.0, max: 5.0 },
+    { range: '5.00+', min: 5.0, max: Infinity },
+  ];
+
+  const resolved = bets.filter((b) => b.status === 'won' || b.status === 'lost');
+
+  return buckets.map((bucket) => {
+    const matched = resolved.filter(
+      (b) => b.odds >= bucket.min && b.odds < bucket.max
+    );
+    const wonBets = matched.filter((b) => b.status === 'won').length;
+    const lostBets = matched.filter((b) => b.status === 'lost').length;
+    const betsCount = matched.length;
+    const stake = matched.reduce((acc, b) => acc + (b.stake || 0), 0);
+    const profit = matched.reduce((acc, b) => acc + (b.profit || 0), 0);
+    const roi = stake > 0 ? Number(((profit / stake) * 100).toFixed(2)) : 0;
+    const winRate =
+      betsCount > 0 ? Number(((wonBets / betsCount) * 100).toFixed(1)) : 0;
+    const avgOdds =
+      betsCount > 0
+        ? Number(
+            (
+              matched.reduce((acc, b) => acc + (b.odds || 0), 0) / betsCount
+            ).toFixed(2)
+          )
+        : 0;
+    const impliedWinRate =
+      avgOdds > 0 ? Number(((1 / avgOdds) * 100).toFixed(1)) : 0;
+    const edgePercent =
+      betsCount > 0 ? Number((winRate - impliedWinRate).toFixed(1)) : 0;
+
+    return {
+      range: bucket.range,
+      betsCount,
+      wonBets,
+      lostBets,
+      stake: Number(stake.toFixed(2)),
+      profit: Number(profit.toFixed(2)),
+      roi,
+      winRate,
+      avgOdds,
+      impliedWinRate,
+      edgePercent,
+    };
+  });
+}
+
+/**
+ * 2. Eficiencia por Tamaño de Stake
+ */
+export function calculateStakeRangeStats(bets: Bet[]): StakeRangeStat[] {
+  const resolved = bets.filter((b) => b.status === 'won' || b.status === 'lost');
+  const hasZeroStake = resolved.some((b) => (b.stake || 0) <= 0);
+
+  const buckets: Array<{ range: string; min: number; max: number }> = [
+    ...(hasZeroStake ? [{ range: 'Bono (0€)', min: -Infinity, max: 0.0001 }] : []),
+    { range: '≤ 5€', min: 0.0001, max: 5.0001 },
+    { range: '5.01 - 10€', min: 5.0001, max: 10.0001 },
+    { range: '10.01 - 20€', min: 10.0001, max: 20.0001 },
+    { range: '20.01 - 50€', min: 20.0001, max: 50.0001 },
+    { range: '> 50€', min: 50.0001, max: Infinity },
+  ];
+
+  return buckets.map((bucket) => {
+    const matched = resolved.filter((b) => {
+      const s = b.stake || 0;
+      return s >= bucket.min && s < bucket.max;
+    });
+    const wonBets = matched.filter((b) => b.status === 'won').length;
+    const lostBets = matched.filter((b) => b.status === 'lost').length;
+    const betsCount = matched.length;
+    const stake = matched.reduce((acc, b) => acc + (b.stake || 0), 0);
+    const profit = matched.reduce((acc, b) => acc + (b.profit || 0), 0);
+    const roi = stake > 0 ? Number(((profit / stake) * 100).toFixed(2)) : 0;
+    const winRate =
+      betsCount > 0 ? Number(((wonBets / betsCount) * 100).toFixed(1)) : 0;
+
+    return {
+      range: bucket.range,
+      betsCount,
+      wonBets,
+      lostBets,
+      stake: Number(stake.toFixed(2)),
+      profit: Number(profit.toFixed(2)),
+      roi,
+      winRate,
+    };
+  });
+}
+
+/**
+ * 3. Rendimiento por Día de la Semana (Lunes a Domingo)
+ */
+export function calculateWeekdayStats(bets: Bet[]): WeekdayStat[] {
+  const daysMeta = [
+    { dayIndex: 0, dayLabel: 'Lunes', shortLabel: 'Lun' },
+    { dayIndex: 1, dayLabel: 'Martes', shortLabel: 'Mar' },
+    { dayIndex: 2, dayLabel: 'Miércoles', shortLabel: 'Mié' },
+    { dayIndex: 3, dayLabel: 'Jueves', shortLabel: 'Jue' },
+    { dayIndex: 4, dayLabel: 'Viernes', shortLabel: 'Vie' },
+    { dayIndex: 5, dayLabel: 'Sábado', shortLabel: 'Sáb' },
+    { dayIndex: 6, dayLabel: 'Domingo', shortLabel: 'Dom' },
+  ];
+
+  const accumulators = daysMeta.map((meta) => ({
+    ...meta,
+    betsCount: 0,
+    wonBets: 0,
+    lostBets: 0,
+    stake: 0,
+    profit: 0,
+  }));
+
+  const resolved = bets.filter((b) => b.status === 'won' || b.status === 'lost');
+
+  for (const bet of resolved) {
+    const ymd = extractStableYMD(bet);
+    if (!ymd) continue;
+    const d = parseLocalDateFromYMD(ymd);
+    // Convertir getDay() (0=Dom..6=Sab) a 0=Lun..6=Dom
+    const idx = (d.getDay() + 6) % 7;
+    const target = accumulators[idx];
+    target.betsCount += 1;
+    target.stake += bet.stake || 0;
+    target.profit += bet.profit || 0;
+    if (bet.status === 'won') target.wonBets += 1;
+    if (bet.status === 'lost') target.lostBets += 1;
+  }
+
+  return accumulators.map((item) => {
+    const roi =
+      item.stake > 0 ? Number(((item.profit / item.stake) * 100).toFixed(2)) : 0;
+    const winRate =
+      item.betsCount > 0
+        ? Number(((item.wonBets / item.betsCount) * 100).toFixed(1))
+        : 0;
+    return {
+      dayIndex: item.dayIndex,
+      dayLabel: item.dayLabel,
+      shortLabel: item.shortLabel,
+      betsCount: item.betsCount,
+      wonBets: item.wonBets,
+      lostBets: item.lostBets,
+      stake: Number(item.stake.toFixed(2)),
+      profit: Number(item.profit.toFixed(2)),
+      roi,
+      winRate,
+    };
+  });
+}
+
+/**
+ * 4. Análisis de Riesgo, Drawdown y Rachas Históricas
+ */
+export function calculateRiskAndStreakMetrics(bets: Bet[]): RiskStreakMetrics {
+  const resolved = bets
+    .filter((b) => b.status === 'won' || b.status === 'lost')
+    .sort((a, b) => {
+      const ymdA = extractStableYMD(a) || a.created_at;
+      const ymdB = extractStableYMD(b) || b.created_at;
+      if (ymdA !== ymdB) return ymdA.localeCompare(ymdB);
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+
+  let grossWins = 0;
+  let grossLosses = 0;
+  let maxSingleWin = 0;
+  let maxSingleLoss = 0;
+  let bestWinStreak = 0;
+  let worstLossStreak = 0;
+  let curWinStreak = 0;
+  let curLossStreak = 0;
+
+  const dailyMap = new Map<string, number>();
+
+  for (const b of resolved) {
+    const profit = b.profit || 0;
+    if (profit > 0) {
+      grossWins += profit;
+      if (profit > maxSingleWin) maxSingleWin = profit;
+    } else if (profit < 0) {
+      grossLosses += Math.abs(profit);
+      if (profit < maxSingleLoss) maxSingleLoss = profit;
+    }
+
+    if (b.status === 'won') {
+      curWinStreak += 1;
+      curLossStreak = 0;
+      if (curWinStreak > bestWinStreak) bestWinStreak = curWinStreak;
+    } else if (b.status === 'lost') {
+      curLossStreak += 1;
+      curWinStreak = 0;
+      if (curLossStreak > worstLossStreak) worstLossStreak = curLossStreak;
+    }
+
+    const ymd = extractStableYMD(b);
+    if (ymd) {
+      dailyMap.set(ymd, (dailyMap.get(ymd) || 0) + profit);
+    }
+  }
+
+  const sortedDates = Array.from(dailyMap.keys()).sort((a, b) => a.localeCompare(b));
+  const shortMonths = [
+    'ene', 'feb', 'mar', 'abr', 'may', 'jun',
+    'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+  ];
+  const fullMonths = [
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  ];
+
+  let cumulative = 0;
+  let peak = 0; // El bankroll parte de 0€ antes de la primera apuesta
+  let maxDrawdown = 0;
+  let maxDrawdownDate = '';
+  let positiveDays = 0;
+  let negativeDays = 0;
+  let breakEvenDays = 0;
+
+  const drawdownSeries: DrawdownPoint[] = [];
+
+  for (const ymd of sortedDates) {
+    const dailyProfit = dailyMap.get(ymd) || 0;
+    if (dailyProfit > 0.001) positiveDays++;
+    else if (dailyProfit < -0.001) negativeDays++;
+    else breakEvenDays++;
+
+    cumulative += dailyProfit;
+    if (cumulative > peak) peak = cumulative;
+    const drawdown = Number((cumulative - peak).toFixed(2));
+    if (drawdown < maxDrawdown) {
+      maxDrawdown = drawdown;
+      maxDrawdownDate = ymd;
+    }
+
+    const [year, month, day] = ymd.split('-');
+    const mIdx = parseInt(month, 10) - 1;
+    const formattedDate = `${parseInt(day, 10)} ${shortMonths[mIdx] || month}`;
+    const fullDate = `${parseInt(day, 10)} de ${fullMonths[mIdx] || month}, ${year}`;
+
+    drawdownSeries.push({
+      date: ymd,
+      formattedDate,
+      fullDate,
+      cumulativeProfit: Number(cumulative.toFixed(2)),
+      peakProfit: Number(peak.toFixed(2)),
+      drawdown,
+      dailyProfit: Number(dailyProfit.toFixed(2)),
+    });
+  }
+
+  const activeDays = sortedDates.length;
+  const positiveDaysRate =
+    activeDays > 0 ? Number(((positiveDays / activeDays) * 100).toFixed(1)) : 0;
+  const totalNet = grossWins - grossLosses;
+  const avgDailyProfit =
+    activeDays > 0 ? Number((totalNet / activeDays).toFixed(2)) : 0;
+  const profitFactor =
+    grossLosses > 0 ? Number((grossWins / grossLosses).toFixed(2)) : null;
+
+  return {
+    drawdownSeries,
+    maxDrawdown: Number(maxDrawdown.toFixed(2)),
+    maxDrawdownDate,
+    profitFactor,
+    grossWins: Number(grossWins.toFixed(2)),
+    grossLosses: Number(grossLosses.toFixed(2)),
+    bestWinStreak,
+    worstLossStreak,
+    maxSingleWin: Number(maxSingleWin.toFixed(2)),
+    maxSingleLoss: Number(maxSingleLoss.toFixed(2)),
+    activeDays,
+    positiveDays,
+    negativeDays,
+    breakEvenDays,
+    positiveDaysRate,
+    avgDailyProfit,
+  };
+}
+
+/**
+ * 5. Datos diarios para el Calendario Heatmap
+ */
+export function calculateDailyHeatmapData(
+  bets: Bet[]
+): Record<string, DailyHeatmapDay> {
+  const resolved = bets.filter((b) => b.status === 'won' || b.status === 'lost');
+  const result: Record<string, DailyHeatmapDay> = {};
+
+  for (const bet of resolved) {
+    const ymd = extractStableYMD(bet);
+    if (!ymd) continue;
+
+    if (!result[ymd]) {
+      result[ymd] = {
+        date: ymd,
+        profit: 0,
+        betsCount: 0,
+        wonBets: 0,
+        lostBets: 0,
+        stake: 0,
+      };
+    }
+
+    const entry = result[ymd];
+    entry.profit = Number((entry.profit + (bet.profit || 0)).toFixed(2));
+    entry.betsCount += 1;
+    entry.stake = Number((entry.stake + (bet.stake || 0)).toFixed(2));
+    if (bet.status === 'won') entry.wonBets += 1;
+    if (bet.status === 'lost') entry.lostBets += 1;
+  }
+
+  return result;
+}
+
+/**
+ * 6. Estadísticas avanzadas y rankings de Casas de Apuestas
+ */
+export function calculateAdvancedBookmakerInsights(
+  bets: Bet[]
+): AdvancedBookmakerInsights {
+  const canonicalMap = new Map<string, string>();
+  for (const bet of bets) {
+    const raw = (bet.bookmaker || '').trim();
+    if (!raw) continue;
+    const lower = raw.toLowerCase();
+    if (!canonicalMap.has(lower)) {
+      canonicalMap.set(lower, raw);
+    } else {
+      const existing = canonicalMap.get(lower)!;
+      if (raw[0] === raw[0].toUpperCase() && existing[0] !== existing[0].toUpperCase()) {
+        canonicalMap.set(lower, raw);
+      }
+    }
+  }
+
+  const map = new Map<
+    string,
+    {
+      betsCount: number;
+      resolvedCount: number;
+      wonBets: number;
+      lostBets: number;
+      pendingBets: number;
+      stake: number;
+      profit: number;
+      oddsSum: number;
+      oddsCount: number;
+      maxWin: number;
+    }
+  >();
+
+  let totalBetsCount = 0;
+  let totalResolvedStake = 0;
+
+  for (const bet of bets) {
+    const raw = (bet.bookmaker || '').trim();
+    const bookmaker = raw ? canonicalMap.get(raw.toLowerCase()) || raw : 'Sin casa';
+    const cur = map.get(bookmaker) || {
+      betsCount: 0,
+      resolvedCount: 0,
+      wonBets: 0,
+      lostBets: 0,
+      pendingBets: 0,
+      stake: 0,
+      profit: 0,
+      oddsSum: 0,
+      oddsCount: 0,
+      maxWin: 0,
+    };
+
+    cur.betsCount += 1;
+    totalBetsCount += 1;
+
+    if (bet.odds > 0) {
+      cur.oddsSum += bet.odds;
+      cur.oddsCount += 1;
+    }
+
+    if (bet.status === 'won' || bet.status === 'lost') {
+      cur.resolvedCount += 1;
+      cur.stake += bet.stake || 0;
+      totalResolvedStake += bet.stake || 0;
+      cur.profit += bet.profit || 0;
+      if (bet.status === 'won') {
+        cur.wonBets += 1;
+        if ((bet.profit || 0) > cur.maxWin) {
+          cur.maxWin = bet.profit || 0;
+        }
+      } else {
+        cur.lostBets += 1;
+      }
+    } else if (bet.status === 'pending') {
+      cur.pendingBets += 1;
+    }
+
+    map.set(bookmaker, cur);
+  }
+
+  const items: AdvancedBookmakerStat[] = [];
+  for (const [bookmaker, s] of map.entries()) {
+    const roi = s.stake > 0 ? Number(((s.profit / s.stake) * 100).toFixed(2)) : 0;
+    const winRate =
+      s.resolvedCount > 0
+        ? Number(((s.wonBets / s.resolvedCount) * 100).toFixed(1))
+        : 0;
+    const avgOdds =
+      s.oddsCount > 0 ? Number((s.oddsSum / s.oddsCount).toFixed(2)) : 0;
+    const avgStake =
+      s.resolvedCount > 0 ? Number((s.stake / s.resolvedCount).toFixed(2)) : 0;
+    const volumeSharePercent =
+      totalBetsCount > 0
+        ? Number(((s.betsCount / totalBetsCount) * 100).toFixed(1))
+        : 0;
+
+    items.push({
+      bookmaker,
+      betsCount: s.betsCount,
+      resolvedCount: s.resolvedCount,
+      wonBets: s.wonBets,
+      lostBets: s.lostBets,
+      pendingBets: s.pendingBets,
+      stake: Number(s.stake.toFixed(2)),
+      profit: Number(s.profit.toFixed(2)),
+      roi,
+      winRate,
+      avgOdds,
+      avgStake,
+      volumeSharePercent,
+      maxWin: Number(s.maxWin.toFixed(2)),
+    });
+  }
+
+  items.sort((a, b) => b.profit - a.profit);
+
+  const resolvedItems = items.filter((i) => i.resolvedCount > 0);
+  const itemsWithStake = items.filter((i) => i.stake > 0);
+
+  const topProfitBookmaker =
+    resolvedItems.length > 0
+      ? [...resolvedItems].sort((a, b) => b.profit - a.profit)[0]
+      : null;
+
+  const worstProfitBookmaker =
+    resolvedItems.length > 0
+      ? [...resolvedItems].sort((a, b) => a.profit - b.profit)[0]
+      : null;
+
+  const mostBetsBookmaker =
+    items.length > 0
+      ? [...items].sort((a, b) => b.betsCount - a.betsCount)[0]
+      : null;
+
+  const highestStakeBookmaker =
+    itemsWithStake.length > 0
+      ? [...itemsWithStake].sort((a, b) => b.stake - a.stake)[0]
+      : null;
+
+  const bestRoiBookmaker =
+    itemsWithStake.length > 0
+      ? [...itemsWithStake].sort((a, b) => b.roi - a.roi)[0]
+      : null;
+
+  const bestWinRateBookmaker =
+    resolvedItems.length > 0
+      ? [...resolvedItems].sort((a, b) => b.winRate - a.winRate)[0]
+      : null;
+
+  return {
+    items,
+    topProfitBookmaker,
+    worstProfitBookmaker,
+    mostBetsBookmaker,
+    highestStakeBookmaker,
+    bestRoiBookmaker,
+    bestWinRateBookmaker,
+    totalBetsCount,
+    totalResolvedStake: Number(totalResolvedStake.toFixed(2)),
+  };
+}
+
+
 

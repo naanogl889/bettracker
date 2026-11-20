@@ -46,6 +46,8 @@ import {
   calculateComparativeMetrics,
   calculateStrategyStats,
 } from '../utils/metrics';
+import { AdvancedAnalyticsSection } from './AdvancedAnalyticsSection';
+import { AccountInsightsTicker } from './AccountInsightsTicker';
 
 interface DashboardViewProps {
   bets: Bet[];
@@ -786,6 +788,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Barra horizontal de una sola línea con rotación cada 5s y modal de detalle */}
+        <AccountInsightsTicker bets={bets} />
       </div>
 
       {/* Panel Unificado: Estadísticas apuestas de valor */}
@@ -2026,6 +2031,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Sección Final: Estadísticas Avanzadas */}
+      <AdvancedAnalyticsSection bets={bets} />
 
       {/* MODAL: Desglose de Ganancias y Pérdidas de Hoy y Ayer */}
       {isDayBreakdownOpen && (
