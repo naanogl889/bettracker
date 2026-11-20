@@ -146,6 +146,7 @@ export const COMMON_BOOKMAKERS = [
   'Codere',
   'Daznbet',
   'Gran Casino Madrid',
+  'Interwetten',
   'Kirolbet',
   'Luckia',
   'Monopoly',
